@@ -23,6 +23,7 @@ export class Tile {
     this.col = col;
     this.type = type;
     this.cost = Tile.Cost.get(this.type);
+    this.pathCost = Infinity; // For pathfinding algorithms
   }
 
   // Check to see if we can walk on this tile

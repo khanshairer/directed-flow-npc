@@ -46,4 +46,41 @@ export class Dijkstra extends Pathfinder {
     return [];
   }
 
+  totalCost(path) {
+    let total = 0;
+    for (let tile of path) {
+      total += tile.cost;
+    }
+    return total;
+  }
+
+  // Get the costs of the neighbours of a tile
+  getNeighboursCosts(tile, goal, map) {
+    // Add validation
+    if (!tile || !goal || !map) {
+      console.warn('Invalid inputs to getNeighboursCosts');
+      return new Map();
+    }
+    
+    let neighbours = map.getNeighbours(tile);
+    let costs = new Map();
+     
+    for (let neighbour of neighbours) {
+      // Skip if neighbour is undefined
+      if (!neighbour) continue;
+      
+      let path = this.findPath(neighbour, goal, map);
+      
+      // Only calculate cost if path exists
+      if (path && path.length > 0) {
+        let temp = this.totalCost(path);
+        costs.set(neighbour, temp);
+      } else {
+        // If no path exists, set infinite cost
+        costs.set(neighbour, Infinity);
+      }
+    }
+    return costs;
+  }
+  
 }

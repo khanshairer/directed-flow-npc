@@ -7,8 +7,11 @@ export class Pathfinder {
     }
   }
 
+ 
   // Find path must be implemented
   findPath(start, end, map) {
+
+     
     throw new Error("Must implement findPath!");
   }
 
