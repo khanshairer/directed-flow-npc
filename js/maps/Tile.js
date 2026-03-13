@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 // Tile class, which is our nodes
 export class Tile {
 
@@ -23,7 +24,11 @@ export class Tile {
     this.col = col;
     this.type = type;
     this.cost = Tile.Cost.get(this.type);
-    this.pathCost = Infinity; // For pathfinding algorithms
+    
+    // added for pathfinding algorithms
+    this.pathCost = Infinity; 
+    this.flowVector = new THREE.Vector3(0,0,0);
+
   }
 
   // Check to see if we can walk on this tile

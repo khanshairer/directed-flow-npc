@@ -23,11 +23,13 @@ export class World {
     this.inputHandler = new InputHandler(this.camera);
 
     this.entities = [];
+    
     // added ................
     this.goals = [];
     this.npcs = [];
     
     this.Pathfinder = new Dijkstra();    
+    // Debug visuals for arrows
     this.debugVisuals = new DebugVisuals(this.scene);
   }
 
@@ -39,14 +41,14 @@ export class World {
 
     this.tileMapRenderer = new TileMapRenderer(this.map);
     this.tileMapRenderer.render(this.scene);
+    
     // debug arrow visuals for walkable tiles
-    // FIX: Get a specific tile from the map
-
-    this.createGoals(5);
-    this.createNPCs(20);
+    // Get a specific tile from the map
+    this.createGoals(7);
+    this.createNPCs(21);
     
     this.buildCostFieldForAllGoals();
-    this.allTileArrows(this.goals[0]);
+    this.allTileArrows();
 
 }
 
@@ -65,7 +67,7 @@ export class World {
       continue;
     }
     
-    // Check all 8 adjacent directions (including diagonals)
+    // Check all 8 adjacent directions (including diagonals) for existing goals
     let isAdjacentToGoal = this.goals.some(goal => {
       let rowDiff = Math.abs(goal.row - randomTile.row);
       let colDiff = Math.abs(goal.col - randomTile.col);
@@ -97,15 +99,13 @@ export class World {
     
     console.log(`NPC ${i} placed at tile (${randomTile.row}, ${randomTile.col}) -> position (${position.x}, ${position.y}, ${position.z})`);
     
-    // FIX: Pass a configuration object, not separate arguments
+    // Pass a configuration object
     let npc = new DynamicEntity({
       position: position,
       velocity: new THREE.Vector3(
-        (Math.random() - 0.5) * 2,
-        0,
-        (Math.random() - 0.5) * 2
+        0,0,0
       ),
-      color: 0xff3333,  // Bright red
+      color: 0xff3333,  
       scale: new THREE.Vector3(1, 1, 1)
     });
     
@@ -124,7 +124,7 @@ shortestPathCost(start,end){
     }
     return this.Pathfinder.totalCost(path);
 }
-// build the cost field by chatgpt..
+// build the uniform cost field for all the goals and grids..
 buildCostFieldForAllGoals() {
   // Reset all tiles
   for (let row of this.map.grid) {
@@ -133,7 +133,7 @@ buildCostFieldForAllGoals() {
     }
   }
 
-  // Multi-source Dijkstra: all goals start at 0
+  // Multi-source Dijkstra
   let open = [];
 
   for (let goal of this.goals) {
@@ -157,7 +157,7 @@ buildCostFieldForAllGoals() {
     }
   }
 }
-// replaced
+// return the downhill direction..
 lowerCostNeighborDirection(center, map) {
   let neighbours = map.getNeighbours(center);
   let sum = new THREE.Vector3(0, 0, 0);
@@ -168,7 +168,7 @@ lowerCostNeighborDirection(center, map) {
   for (let neighbor of neighbours) {
     let delta = center.pathCost - neighbor.pathCost;
 
-    // Track lowest path-cost neighbour
+    // Track lowest path-cost neighbour as soon in the note..
     if (neighbor.pathCost < lowestCost) {
       lowestCost = neighbor.pathCost;
       lowestNeighbor = neighbor;
@@ -189,10 +189,11 @@ lowerCostNeighborDirection(center, map) {
     return sum.normalize();
   }
 
-  // Edge-case fallback: point to lowest-cost neighbour
+  // Edge-case: point to lowest-cost neighbour(even if it's not downhill - as mentioned in the note)..
   if (lowestNeighbor && lowestNeighbor.pathCost < center.pathCost) {
     let dx = lowestNeighbor.col - center.col;
     let dz = lowestNeighbor.row - center.row;
+    // make the direction vector as grid size by normalizing it
     return new THREE.Vector3(dx, 0, dz).normalize();
   }
 
@@ -201,6 +202,8 @@ lowerCostNeighborDirection(center, map) {
 
 drawArrow(tile, direction, color=0x000000, length=0.6) {
   let arrow = this.debugVisuals.createArrow(tile, direction, this.map, color, length);
+  
+  if(!arrow) return; // If arrow creation failed, skip adding to scene
   this.scene.add(arrow);
 }
 
@@ -212,13 +215,19 @@ for (let goal of this.goals) {
 }
 return false;
 }
+
 allTileArrows() {
   for (let row of this.map.grid) {
     for (let tile of row) {
       if (!tile.isWalkable()) continue;
-      if (this.isGoal(tile)) continue;
+
+      if (this.isGoal(tile)) {
+        tile.flowVector.set(0, 0, 0);
+        continue;
+      }
 
       let direction = this.lowerCostNeighborDirection(tile, this.map);
+      tile.flowVector.copy(direction);
 
       if (direction.lengthSq() > 0) {
         this.drawArrow(tile, direction);
@@ -226,7 +235,8 @@ allTileArrows() {
     }
   }
 }
-// by gpt 
+
+// give direction to the npc to move to the best neighbor tile with lowest path cost
 bestNeighbor(center, map) {
   let neighbours = map.getNeighbours(center);
   let bestNeighbor = null;
@@ -241,16 +251,9 @@ bestNeighbor(center, map) {
 
   return bestNeighbor;
 }
-  // Add an entity to the world
-  addEntityToWorld(entity) {
-    this.scene.add(entity.mesh);
-    this.entities.push(entity);
-  }
 
-  // Update our world
-  update() {
-  let dt = this.clock.getDelta();
-  let speed = 2.0;
+runVectorFieldPathFinding() {
+  let speed = 2;
 
   for (let npc of this.npcs) {
     let currentTile = this.map.quantize(npc.position);
@@ -260,23 +263,28 @@ bestNeighbor(center, map) {
       continue;
     }
 
-    let nextTile = this.bestNeighbor(currentTile, this.map);
+    let dir = currentTile.flowVector.clone();
 
-    if (nextTile) {
-      let targetPos = this.map.localize(nextTile);
-      let dir = targetPos.clone().sub(npc.position);
-      dir.y = 0;
-
-      if (dir.lengthSq() > 0.0001) {
-        dir.normalize();
-        npc.velocity.copy(dir.multiplyScalar(speed));
-      } else {
-        npc.velocity.set(0, 0, 0);
-      }
+    if (dir.lengthSq() > 0.0001) {
+      dir.normalize();
+      npc.velocity.copy(dir.multiplyScalar(speed));
     } else {
       npc.velocity.set(0, 0, 0);
     }
   }
+}
+
+  // Add an entity to the world
+  addEntityToWorld(entity) {
+    this.scene.add(entity.mesh);
+    this.entities.push(entity);
+  }
+
+  // Update our world
+  update() {
+  let dt = this.clock.getDelta();
+  this.runVectorFieldPathFinding();
+
 
   for (let e of this.entities) {
     if (e.update) {
