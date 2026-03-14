@@ -63,7 +63,7 @@ export class World {
     this.createOceanWave();
 
     // debug arrow visuals for walkable tiles
-    this.createGoals(7);
+    this.createGoals(5);
     
     // Create NPCs with loading feedback
     this.createNPCs(15);
@@ -231,6 +231,7 @@ export class World {
 
   // create 5 random goal in the world 
   // create goals in the world with pier models
+// create goals in the world with pier models
 createGoals(numGoals = 5) {
   console.log(`Creating ${numGoals} pier goals...`);
   
@@ -261,11 +262,11 @@ createGoals(numGoals = 5) {
     });
     
     if (!isAdjacentToGoal) {
-      // Get position for this goal
+      // Get position for this goal - this should already be the tile center
       let position = this.map.localize(randomTile);
       
       // Create a temporary visual marker (colored cube) while pier loads
-      const tempGeometry = new THREE.BoxGeometry(2, 2, 2);
+      const tempGeometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
       const tempMaterial = new THREE.MeshStandardMaterial({ 
         color: 0xffdd44,
         emissive: 0x442200,
@@ -274,13 +275,13 @@ createGoals(numGoals = 5) {
       });
       const tempMarker = new THREE.Mesh(tempGeometry, tempMaterial);
       tempMarker.position.copy(position);
-      tempMarker.position.y = 1;
+      tempMarker.position.y = 1; // Lift slightly above ground
       this.scene.add(tempMarker);
       
       // Load pier model
       const loader = new GLTFLoader();
       loader.load(
-        './pier/scene.gltf', // Adjust path based on your structure
+        '../public/pier/scene.gltf',
         (gltf) => {
           console.log(`✅ Pier model loaded for goal ${goalCount}`);
           
@@ -289,27 +290,55 @@ createGoals(numGoals = 5) {
           // Remove temporary marker
           this.scene.remove(tempMarker);
           
-          // Scale and position the pier
-          model.scale.set(2, 2, 2); // Adjust scale as needed
-          model.position.copy(position);
-          model.position.y = 0; // Ground level
-          
-          // Center the pier on ground
+          // First, get the original bounds to center properly
           const box = new THREE.Box3().setFromObject(model);
-          model.position.y = -box.min.y;
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          
+          // Create a container group to hold the pier
+          const pierGroup = new THREE.Group();
+          
+          // Add model to group and offset so it's centered
+          model.position.copy(center.clone().negate());
+          pierGroup.add(model);
+          
+          // Scale the group
+          pierGroup.scale.set(0.3, 0.5, 0.3);
+          
+          // Position the group at the tile center
+          pierGroup.position.copy(position);
+          
+          // Adjust Y position to sit on ground
+          // The bottom of the model should be at ground level
+          const scaledHeight = size.y * 0.5;
+          pierGroup.position.y = scaledHeight / 2; // Half height above ground
           
           // Add random rotation for variety
-          model.rotation.y = Math.random() * Math.PI * 2;
+          pierGroup.rotation.y = Math.random() * Math.PI * 2;
           
           // Add to scene
-          this.scene.add(model);
+          this.scene.add(pierGroup);
           
-          // Store reference
+          // Store reference to the group
           this.piers.push({
-            mesh: model,
+            mesh: pierGroup,
             tile: randomTile,
             position: position
           });
+          
+          // Add a small debug sphere at the exact tile center to verify alignment
+          const debugSphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+          );
+          debugSphere.position.copy(position);
+          debugSphere.position.y = 0.5;
+          this.scene.add(debugSphere);
+          
+          // Remove debug sphere after 5 seconds
+          setTimeout(() => this.scene.remove(debugSphere), 5000);
           
           // Track loading progress
           this.piersLoaded++;
@@ -348,137 +377,168 @@ createGoals(numGoals = 5) {
     console.warn(`Only able to place ${goalCount} out of ${numGoals} non-adjacent piers`);
   }
 }
-
   // create npcs with visual loading feedback
-  createNPCs(numNPCs = 10) {
-    console.log(`Creating ${numNPCs} NPCs...`);
-    console.log(`Map has ${this.map.walkableTiles.length} walkable tiles`);
-    
-    this.modelsLoading = numNPCs;
-    this.modelsLoaded = 0;
-    
-    for (let i = 0; i < numNPCs; i++) {
-      let randomTile = this.map.walkableTiles[Math.floor(Math.random() * this.map.walkableTiles.length)];
-      let position = this.map.localize(randomTile);
-      
-      console.log(`NPC ${i} placed at tile (${randomTile.row}, ${randomTile.col}) -> position (${position.x}, ${position.y}, ${position.z})`);
-      
-      // Create NPC entity with a temporary loading cube
-      let npc = new DynamicEntity({
-        position: position,
-        velocity: new THREE.Vector3(0, 0, 0),
-        color: 0xffaa33,  // Orange color for loading
-        scale: new THREE.Vector3(1, 1, 1)
-      });
-
-      
-
-      // Add a flag to indicate if boat is loaded
-      npc.boatLoaded = false;
-
-      // Add a temporary cube that shows it's loading
-      const tempGeometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
-      const tempMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0xffaa33,
-        emissive: 0x442200,
-        transparent: true,
-        opacity: 0.7
-      });
-      const tempCube = new THREE.Mesh(tempGeometry, tempMaterial);
-      tempCube.position.set(0, 0.75, 0);
-      npc.mesh.add(tempCube);
-      
-      // Add a spinning indicator
-      const indicatorGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
-      const indicatorMat = new THREE.MeshStandardMaterial({ color: 0xffff00 });
-      const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
-      indicator.position.set(0, 1.8, 0);
-      indicator.userData = { spinSpeed: 0.1 };
-      npc.mesh.add(indicator);
-      npc.loadingIndicator = indicator;
-
-      // Load boat model
-      const loader = new GLTFLoader();
-      loader.load(
-        './wooden_boat/scene.gltf',
-        (gltf) => {
-          console.log(`✅ Boat model loaded for NPC ${i}`, gltf);
-          
-          const model = gltf.scene;
-
-          // Store position before clearing
-          const npcPosition = npc.position.clone();
-          
-          // Remove temporary loading visuals
-          while(npc.mesh.children.length > 0) {
-            npc.mesh.remove(npc.mesh.children[0]);
-          }
-
-          // Scale and position the boat
-          model.scale.set(0.3, 0.3, 0.3);
-          model.position.set(0, 0, 0);
-          
-          // Center the boat on ground
-          const box = new THREE.Box3().setFromObject(model);
-          model.position.y = -box.min.y;
-          
-          // Add random rotation
-          model.rotation.y = Math.random() * Math.PI * 2;
-
-          // Add the boat model
-          npc.mesh.add(model);
-          
-          // Mark boat as loaded
-          npc.boatLoaded = true;
-          
-          // Update color to final color
-          npc.color = 0xff3333;
-          
-          // Handle animations
-          if (gltf.animations && gltf.animations.length > 0) {
-            console.log('Animations found:', gltf.animations.map(a => a.name));
-            const mixer = new THREE.AnimationMixer(model);
-            const action = mixer.clipAction(gltf.animations[0]);
-            action.play();
-            npc.mixer = mixer;
-            this.mixers.push(mixer);
-          }
-          
-          // Track loading progress
-          this.modelsLoaded++;
-          console.log(`Loaded ${this.modelsLoaded}/${this.modelsLoading} boats`);
-          
-          // Update loading indicator
-          this.updateLoadingIndicator();
-        },
-        (progress) => {
-          // Optional: show per-NPC progress
-          // console.log(`NPC ${i}: ${Math.round(progress.loaded / progress.total * 100)}%`);
-        },
-        (error) => {
-          console.error(`❌ Error loading boat for NPC ${i}:`, error);
-          
-          // Make the loading cube red to show error
-          if (npc.mesh.children[0]) {
-            npc.mesh.children[0].material.color.setHex(0xff0000);
-          }
-          
-          // Mark as loaded (with error) so it can be considered for movement if needed
-          npc.boatLoaded = true;
-          npc.loadError = true;
-          
-          this.modelsLoaded++;
-          this.updateLoadingIndicator();
-        }
-      );
-      
-      this.npcs.push(npc);
-      this.addEntityToWorld(npc);
+  // Helper function for boat rotation
+getBoatRotationAngle(velocity, boatModel) {
+  let baseAngle = Math.atan2(velocity.x, velocity.z);
+  
+  // Check if the boat model has a specific forward direction
+  if (boatModel && boatModel.userData && boatModel.userData.forwardAxis) {
+    switch(boatModel.userData.forwardAxis) {
+      case 'x': return baseAngle - Math.PI / 2;
+      case '-x': return baseAngle + Math.PI / 2;
+      case 'z': return baseAngle;
+      case '-z': return baseAngle + Math.PI;
+      default: return baseAngle;
     }
-    
-    console.log(`Total entities after creation: ${this.entities.length}`);
-    console.log(`Loading ${this.modelsLoading} boats...`);
   }
+  
+  // Default assumption (model faces +Z)
+  return baseAngle;
+}
+
+// create npcs with visual loading feedback
+// create npcs with visual loading feedback
+createNPCs(numNPCs = 10) {
+  console.log(`Creating ${numNPCs} NPCs...`);
+  console.log(`Map has ${this.map.walkableTiles.length} walkable tiles`);
+  
+  this.modelsLoading = numNPCs;
+  this.modelsLoaded = 0;
+  
+  for (let i = 0; i < numNPCs; i++) {
+    let randomTile = this.map.walkableTiles[Math.floor(Math.random() * this.map.walkableTiles.length)];
+    let position = this.map.localize(randomTile);
+    
+    console.log(`NPC ${i} placed at tile (${randomTile.row}, ${randomTile.col}) -> position (${position.x}, ${position.y}, ${position.z})`);
+    
+    // Create NPC entity with a temporary loading cube
+    let npc = new DynamicEntity({
+      position: position,
+      velocity: new THREE.Vector3(0, 0, 0),
+      color: 0xffaa33,  // Orange color for loading
+      scale: new THREE.Vector3(1, 1, 1)
+    });
+
+    // Set initial rotation to face a random direction
+    // This prevents the default cone from facing the wrong way
+    npc.mesh.rotation.y = Math.random() * Math.PI * 2;
+
+    // Add a flag to indicate if boat is loaded
+    npc.boatLoaded = false;
+
+    // Add a temporary cube that shows it's loading
+    const tempGeometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+    const tempMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xffaa33,
+      emissive: 0x442200,
+      transparent: true,
+      opacity: 0.7
+    });
+    const tempCube = new THREE.Mesh(tempGeometry, tempMaterial);
+    tempCube.position.set(0, 0.75, 0);
+    npc.mesh.add(tempCube);
+    
+    // Add a spinning indicator
+    const indicatorGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
+    const indicatorMat = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+    const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
+    indicator.position.set(0, 1.8, 0);
+    indicator.userData = { spinSpeed: 0.1 };
+    npc.mesh.add(indicator);
+    npc.loadingIndicator = indicator;
+
+    // Load boat model
+    const loader = new GLTFLoader();
+    loader.load(
+      '../public/wooden_boat/scene.gltf',  // Updated path
+      (gltf) => {
+        console.log(` Boat model loaded for NPC ${i}`, gltf);
+        
+        const model = gltf.scene;
+
+        // Store position before clearing
+        const npcPosition = npc.position.clone();
+        // Store current rotation
+        const currentRotation = npc.mesh.rotation.y;
+        
+        // Remove temporary loading visuals
+        while(npc.mesh.children.length > 0) {
+          npc.mesh.remove(npc.mesh.children[0]);
+        }
+
+        // Scale and position the boat
+        model.scale.set(0.25, 0.25, 0.25);
+        model.position.set(0, 0, 0);
+        
+        // Center the boat on ground
+        const box = new THREE.Box3().setFromObject(model);
+        model.position.y = -box.min.y;
+        
+        // Store the forward direction for rotation helper
+        // Try different values if the boat faces wrong direction:
+        // 'x' for boats facing +X, '-x' for -X, 'z' for +Z, '-z' for -Z
+        model.userData.forwardAxis = 'x'; // Try 'x' first for wooden_boat
+
+        // Add the boat model WITHOUT rotating it first
+        npc.mesh.add(model);
+        
+        // Store reference to the boat model for rotation calculations
+        npc.boatModel = model;
+        
+        // Mark boat as loaded
+        npc.boatLoaded = true;
+        
+        // Update color to final color
+        npc.color = 0xff3333;
+        
+        // Restore the rotation we had
+        npc.mesh.rotation.y = currentRotation;
+        
+        // Handle animations
+        if (gltf.animations && gltf.animations.length > 0) {
+          console.log('Animations found:', gltf.animations.map(a => a.name));
+          const mixer = new THREE.AnimationMixer(model);
+          const action = mixer.clipAction(gltf.animations[0]);
+          action.play();
+          npc.mixer = mixer;
+          this.mixers.push(mixer);
+        }
+        
+        // Track loading progress
+        this.modelsLoaded++;
+        console.log(`Loaded ${this.modelsLoaded}/${this.modelsLoading} boats`);
+        
+        // Update loading indicator
+        this.updateLoadingIndicator();
+      },
+      (progress) => {
+        // Optional: show per-NPC progress
+      },
+      (error) => {
+        console.error(`Error loading boat for NPC ${i}:`, error);
+        
+        // Make the loading cube red to show error
+        if (npc.mesh.children[0]) {
+          npc.mesh.children[0].material.color.setHex(0xff0000);
+        }
+        
+        // Mark as loaded (with error) so it can be considered for movement if needed
+        npc.boatLoaded = true;
+        npc.loadError = true;
+        
+        this.modelsLoaded++;
+        this.updateLoadingIndicator();
+      }
+    );
+    
+    this.npcs.push(npc);
+    this.addEntityToWorld(npc);
+  }
+  
+  console.log(`Total entities after creation: ${this.entities.length}`);
+  console.log(`Loading ${this.modelsLoading} boats...`);
+}
 
   // get the path 
   shortestPathCost(start, end) {
